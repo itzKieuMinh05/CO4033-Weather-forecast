@@ -1,15 +1,25 @@
 import os
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import from_json, col, current_timestamp
+from pyspark.sql.functions import current_timestamp, to_timestamp
 from pyspark.sql.types import *
+
+# ==============================
+# Environment config
+# ==============================
 
 aws_access_key = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
 aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin123")
 aws_region = os.getenv("AWS_REGION", "us-east-1")
 minio_endpoint = os.getenv("S3_ENDPOINT", "http://minio:9000")
 
+input_path = os.getenv("WEATHER_RAW_PATH", "data/weather-vn-5.csv")
+
+# ==============================
+# Spark Session
+# ==============================
+
 spark = SparkSession.builder \
-    .appName("WeatherConsumerKafkaToBronze") \
+    .appName("WeatherCSVToBronze") \
     .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions") \
     .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog") \
     .config("spark.sql.catalog.iceberg.type", "rest") \
@@ -24,9 +34,18 @@ spark = SparkSession.builder \
     .config("spark.sql.defaultCatalog", "iceberg") \
     .getOrCreate()
 
-spark.sql("CREATE NAMESPACE IF NOT EXISTS bronze")
+# ==============================
+# Create namespace if not exists
+# ==============================
+
+spark.sql("CREATE NAMESPACE IF NOT EXISTS iceberg.weather")
+
+# ==============================
+# Create Bronze table if not exists
+# ==============================
+
 spark.sql("""
-CREATE TABLE IF NOT EXISTS bronze.weather (
+CREATE TABLE IF NOT EXISTS iceberg.weather.weather_bronze (
     time STRING,
     province STRING,
     city STRING,
@@ -47,12 +66,15 @@ CREATE TABLE IF NOT EXISTS bronze.weather (
     weather_main STRING,
     weather_description STRING,
     weather_icon STRING,
-    kafka_time TIMESTAMP,
+    event_time TIMESTAMP,
     load_at TIMESTAMP
 )
 USING iceberg
-PARTITIONED BY (province)
 """)
+
+# ==============================
+# Schema for CSV
+# ==============================
 
 schema = StructType([
     StructField("time", StringType()),
@@ -77,32 +99,34 @@ schema = StructType([
     StructField("weather_icon", StringType())
 ])
 
-kafka_df = spark.readStream \
-    .format("kafka") \
-    .option("kafka.bootstrap.servers", os.getenv("KAFKA_BOOTSTRAP_SERVERS", "biopharma-kafka:29092")) \
-    .option("subscribe", "weather_raw") \
-    .option("startingOffsets", "earliest") \
-    .load()
+# ==============================
+# Read CSV from MinIO
+# ==============================
 
-bronze_df = kafka_df.select(
-    from_json(col("value").cast("string"), schema).alias("data"),
-    col("timestamp").alias("kafka_time")
-).select("data.*", "kafka_time") \
- .withColumn("load_at", current_timestamp())
+df = spark.read \
+    .schema(schema) \
+    .option("header", True) \
+    .csv(input_path)
 
-def write_and_preview(batch_df, batch_id):
-    if batch_df.isEmpty():
-        print(f"Batch {batch_id}: no data")
-        return
+# ==============================
+# Add metadata columns
+# ==============================
 
-    print(f"\nBatch {batch_id}: top 10 rows in this batch")
-    batch_df.orderBy(col("kafka_time").asc()).limit(10).show(truncate=False)
+df = df.withColumn(
+    "event_time",
+    to_timestamp("time")
+).withColumn(
+    "load_at",
+    current_timestamp()
+)
 
-    batch_df.writeTo("iceberg.bronze.weather").append()
+print("Preview data:")
+df.show(10, truncate=False)
 
+# ==============================
+# Append to Iceberg Bronze
+# ==============================
 
-bronze_df.writeStream \
-    .foreachBatch(write_and_preview) \
-    .option("checkpointLocation", "s3a://iceberg/checkpoints/weather_bronze") \
-    .start() \
-    .awaitTermination()
+df.writeTo("iceberg.weather.weather_bronze").append()
+
+print("Ingestion completed: data appended to iceberg.weather.weather_bronze")

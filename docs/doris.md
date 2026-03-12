@@ -31,28 +31,17 @@ USE weather_db;
 
 DROP TABLE IF EXISTS weather;
 CREATE TABLE weather (
-    `time` VARCHAR(50),
+    `time` DATETIME,
     `province` VARCHAR(20),
     `city` VARCHAR(50),
     `temperature` DOUBLE,
-    `temp_min` DOUBLE,
-    `temp_max` DOUBLE,
     `humidity` DOUBLE,
-    `feels_like` DOUBLE,
-    `visibility` DOUBLE,
+    `pressure` DOUBLE,
+    `wind_speed` DOUBLE,
     `precipitation` DOUBLE,
     `cloudcover` DOUBLE,
-    `wind_speed` DOUBLE,
-    `wind_gust` DOUBLE,
-    `wind_direction` DOUBLE,
-    `pressure` DOUBLE,
-    `is_day` BOOLEAN,
-    `weather_code` INT,
-    `weather_main` VARCHAR(50),
-    `weather_description` VARCHAR(100),
-    `weather_icon` VARCHAR(20),
-    `kafka_time` DATETIME,
-    `load_at` DATETIME
+    `risk_score` DOUBLE,
+    `update_at` DATETIME,
 )
 DUPLICATE KEY(`time`, `province`, `city`)
 DISTRIBUTED BY HASH(`province`) BUCKETS 3
@@ -62,7 +51,22 @@ PROPERTIES (
     "max_filter_ratio" = "0.2"
 );
 ```
-
+```sql
+INSERT INTO weather_risk
+SELECT
+    time,
+    province,
+    city,
+    temperature,
+    humidity,
+    pressure,
+    wind_speed,
+    precipitation,
+    cloudcover,
+    risk_score,
+    update_at
+FROM iceberg.gold.weather_risk;
+```
 ---
 
 ## 4) Create Routine Load from Kafka (weather topic)

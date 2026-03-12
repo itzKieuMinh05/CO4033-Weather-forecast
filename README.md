@@ -22,7 +22,11 @@ docker exec -it biopharma-spark-master spark-submit /opt/spark/scripts/spark_sam
 docker exec -it biopharma-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server biopharma-kafka:29092 --create --if-not-exists --topic weather_raw --partitions 1 --replication-factor 1
 
 # Optional one-time table setup (consumer.py can auto-create this)
-docker compose exec spark-master spark-submit --master spark://spark-master:7077 /opt/spark/scripts/bronze.py
+docker compose exec spark-master spark-submit --master spark://spark-master:7077 /opt/spark/scripts/ingest_weather_to_bronze.py
+
+docker compose exec spark-master spark-submit --master spark://spark-master:7077 /opt/spark/scripts/silver.py
+
+docker compose exec spark-master spark-submit --master spark://spark-master:7077 /opt/spark/scripts/gold.py
 
 # Start Kafka -> Bronze streaming job
 docker compose exec spark-master spark-submit --master spark://spark-master:7077 /opt/spark/scripts/consumer.py
