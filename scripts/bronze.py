@@ -22,10 +22,10 @@ spark = SparkSession.builder \
     .config("spark.sql.defaultCatalog", "iceberg") \
     .getOrCreate()
 
-spark.sql("CREATE NAMESPACE IF NOT EXISTS weather")
+spark.sql("CREATE NAMESPACE IF NOT EXISTS bronze")
 
 spark.sql("""
-CREATE TABLE IF NOT EXISTS weather.weather_bronze (
+CREATE TABLE IF NOT EXISTS bronze.weather (
     time STRING,
     province STRING,
     city STRING,

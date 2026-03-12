@@ -24,6 +24,36 @@ spark = SparkSession.builder \
     .config("spark.sql.defaultCatalog", "iceberg") \
     .getOrCreate()
 
+spark.sql("CREATE NAMESPACE IF NOT EXISTS bronze")
+spark.sql("""
+CREATE TABLE IF NOT EXISTS bronze.weather (
+    time STRING,
+    province STRING,
+    city STRING,
+    temperature DOUBLE,
+    temp_min DOUBLE,
+    temp_max DOUBLE,
+    humidity DOUBLE,
+    feels_like DOUBLE,
+    visibility DOUBLE,
+    precipitation DOUBLE,
+    cloudcover DOUBLE,
+    wind_speed DOUBLE,
+    wind_gust DOUBLE,
+    wind_direction DOUBLE,
+    pressure DOUBLE,
+    is_day BOOLEAN,
+    weather_code INT,
+    weather_main STRING,
+    weather_description STRING,
+    weather_icon STRING,
+    kafka_time TIMESTAMP,
+    load_at TIMESTAMP
+)
+USING iceberg
+PARTITIONED BY (province)
+""")
+
 schema = StructType([
     StructField("time", StringType()),
     StructField("province", StringType()),
@@ -68,7 +98,7 @@ def write_and_preview(batch_df, batch_id):
     print(f"\nBatch {batch_id}: top 10 rows in this batch")
     batch_df.orderBy(col("kafka_time").asc()).limit(10).show(truncate=False)
 
-    batch_df.writeTo("iceberg.weather.weather_bronze").append()
+    batch_df.writeTo("iceberg.bronze.weather").append()
 
 
 bronze_df.writeStream \

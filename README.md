@@ -19,12 +19,13 @@ docker exec -it biopharma-spark-master spark-submit /opt/spark/scripts/spark_sam
   
 # Kafka
 # Create topic
-docker compose exec kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --create --topic my-topic --partitions 3 --replication-factor 1
-# Run Bronze layer
-docker compose exec spark-master spark-submit --master spark://spark-master:7077 /opt/spark/scripts/bronze.py
-
 docker exec -it biopharma-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server biopharma-kafka:29092 --create --if-not-exists --topic weather_raw --partitions 1 --replication-factor 1
 
-docker compose exec spark-master spark-submit   --master spark://spark-master:7077   /opt/spark/scripts/consumer.py
+# Optional one-time table setup (consumer.py can auto-create this)
+docker compose exec spark-master spark-submit --master spark://spark-master:7077 /opt/spark/scripts/bronze.py
 
+# Start Kafka -> Bronze streaming job
+docker compose exec spark-master spark-submit --master spark://spark-master:7077 /opt/spark/scripts/consumer.py
+
+# Send data to Kafka from local machine
 python scripts/producer.py

@@ -14,6 +14,7 @@ producer = KafkaProducer(
     value_serializer=lambda v: json.dumps(v).encode("utf-8")
 )
 
+# Read multiple files
 df = pd.read_csv("data/weather-vn-1.csv")
 
 count = 0
