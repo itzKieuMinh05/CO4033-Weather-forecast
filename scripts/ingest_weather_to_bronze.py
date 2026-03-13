@@ -12,7 +12,9 @@ aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin123")
 aws_region = os.getenv("AWS_REGION", "us-east-1")
 minio_endpoint = os.getenv("S3_ENDPOINT", "http://minio:9000")
 
-input_path = os.getenv("WEATHER_RAW_PATH", "data/weather-vn-5.csv")
+# input_path = os.getenv("WEATHER_RAW_PATH", "data/weather-vn-5.csv")
+input_path = os.getenv("WEATHER_RAW_PATH", "data/weather-vn-*.csv")
+
 
 # ==============================
 # Spark Session
