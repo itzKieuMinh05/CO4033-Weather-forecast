@@ -42,7 +42,7 @@ spark.sql("CREATE NAMESPACE IF NOT EXISTS iceberg.gold")
 # ==============================
 # Create gold table
 # ==============================
-spark.sql("""drop table iceberg.gold.weather_risk; """)
+spark.sql("""drop table if exists iceberg.gold.weather_risk; """)
 spark.sql("""
 CREATE TABLE IF NOT EXISTS iceberg.gold.weather_risk (
     time TIMESTAMP,
