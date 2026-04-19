@@ -2,7 +2,9 @@
 __pycache__/
 *.py[codz]
 *$py.class
-
+datamining/
+docs/datamining.md
+.venv/
 # C extensions
 *.so
 
