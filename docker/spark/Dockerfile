@@ -17,22 +17,35 @@ ENV SPARK_VERSION=3.5.8
 ENV HADOOP_VERSION=3
 ENV ICEBERG_VERSION=1.9.2
 ENV SPARK_HOME=/opt/spark
+ENV HOME=/home/spark
+ENV JUPYTER_CONFIG_DIR=/home/spark/.jupyter
+ENV JUPYTER_DATA_DIR=/home/spark/.local/share/jupyter
+ENV JUPYTER_RUNTIME_DIR=/home/spark/.local/share/jupyter/runtime
 ENV PATH=$PATH:$SPARK_HOME/bin:$SPARK_HOME/sbin
 ENV SPARK_JARS_PACKAGES="org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.9.2"
 
 
-# Install Python packages for Iceberg
-RUN pip3 install --break-system-packages pyiceberg[s3fs,pyarrow] && pip3 install --break-system-packages protobuf==5.26.1
+# Install Python packages for Iceberg and notebooks
+RUN pip3 install --break-system-packages \
+    pyiceberg[s3fs,pyarrow] \
+    protobuf==5.26.1 \
+    jupyterlab \
+    notebook \
+    ipykernel \
+    pandas \
+    numpy \
+    matplotlib \
+    seaborn \
+    scipy \
+    scikit-learn \
+    pyspark
 
 # Download and install Spark
-COPY spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz /tmp/
-RUN tar -xzf "/tmp/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" \
+RUN wget "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" \
+    -O "/tmp/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" && \
+    tar -xzf "/tmp/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" \
     && mv "spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}" $SPARK_HOME \
     && rm "/tmp/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz"
-# RUN wget "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" \
-#     && tar -xzf "spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" \
-#     && mv "spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}" $SPARK_HOME \
-#     && rm "spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz"
 
 # Download Iceberg jars
 RUN wget "https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-spark-runtime-3.5_2.12/${ICEBERG_VERSION}/iceberg-spark-runtime-3.5_2.12-${ICEBERG_VERSION}.jar" \
@@ -59,36 +72,13 @@ RUN wget "https://repo1.maven.org/maven2/org/apache/iceberg/iceberg-aws-bundle/1
 RUN wget "https://repo1.maven.org/maven2/org/apache/hadoop/hadoop-aws/3.3.4/hadoop-aws-3.3.4.jar" \
     -O $SPARK_HOME/jars/hadoop-aws-3.3.4.jar
 
-# Download additional connectors
-RUN wget "https://repo1.maven.org/maven2/org/apache/spark/spark-sql-kafka-0-10_2.12/3.5.5/spark-sql-kafka-0-10_2.12-3.5.5.jar" \
-    -O $SPARK_HOME/jars/spark-sql-kafka-0-10_2.12-3.5.5.jar
-
-    # Add Spark Streaming Kafka (DStream API) — OPTIONAL
-RUN wget "https://repo1.maven.org/maven2/org/apache/spark/spark-streaming-kafka-0-10_2.12/3.5.5/spark-streaming-kafka-0-10_2.12-3.5.5.jar" \
-    -O $SPARK_HOME/jars/spark-streaming-kafka-0-10_2.12-3.5.5.jar
-    
-RUN wget "https://repo1.maven.org/maven2/org/apache/spark/spark-token-provider-kafka-0-10_2.12/3.5.5/spark-token-provider-kafka-0-10_2.12-3.5.5.jar" \
-    -O $SPARK_HOME/jars/spark-token-provider-kafka-0-10_2.12-3.5.5.jar && \
-    wget "https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.4.1/kafka-clients-3.4.1.jar" \
-    -O $SPARK_HOME/jars/kafka-clients-3.4.1.jar && \
-    wget "https://repo1.maven.org/maven2/org/apache/kafka/kafka_2.12/3.4.1/kafka_2.12-3.4.1.jar" \
-    -O $SPARK_HOME/jars/kafka_2.12-3.4.1.jar && \
-    wget "https://repo1.maven.org/maven2/commons-pool/commons-pool/1.5.4/commons-pool-1.5.4.jar" \
-    -O $SPARK_HOME/jars/commons-pool-1.5.4.jar && \
-    wget "https://repo1.maven.org/maven2/org/apache/commons/commons-pool2/2.11.1/commons-pool2-2.11.1.jar" \
-    -O $SPARK_HOME/jars/commons-pool2-2.11.1.jar
-
-RUN wget "https://repo1.maven.org/maven2/org/apache/gravitino/gravitino-spark-connector-runtime-3.5_2.12/1.0.0/gravitino-spark-connector-runtime-3.5_2.12-1.0.0.jar" \
-    -O $SPARK_HOME/jars/gravitino-spark-connector-runtime-3.5.jar
-
-# Download Spark Protobuf connector
-RUN wget "https://repo1.maven.org/maven2/org/apache/spark/spark-protobuf_2.12/3.5.5/spark-protobuf_2.12-3.5.5.jar" \
-    -O $SPARK_HOME/jars/spark-protobuf_2.12-3.5.5.jar
-
 # Create spark user
-RUN useradd -r -u 185 -g 0 spark && \
+RUN useradd -m -d /home/spark -r -u 185 -g 0 spark && \
     mkdir -p $SPARK_HOME/work-dir && \
+    mkdir -p /home/spark/.jupyter && \
+    mkdir -p /home/spark/.local/share/jupyter/runtime && \
     chown -R spark:0 $SPARK_HOME && \
+    chown -R spark:0 /home/spark && \
     chmod -R g+w $SPARK_HOME
 
 # Copy entrypoint script
