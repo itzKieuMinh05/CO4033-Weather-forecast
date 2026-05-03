@@ -26,6 +26,9 @@ ENV SPARK_JARS_PACKAGES="org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.9.2
 
 
 # Install Python packages for Iceberg and notebooks
+# QUAN TRỌNG: pyspark phải cùng version với Spark binary (SPARK_VERSION=3.5.8)
+# Không dùng pyspark không có version pin vì pip sẽ cài bản mới nhất (4.x)
+# gây lỗi "'JavaPackage' object is not callable"
 RUN pip3 install --break-system-packages \
     pyiceberg[s3fs,pyarrow] \
     protobuf==5.26.1 \
@@ -38,7 +41,7 @@ RUN pip3 install --break-system-packages \
     seaborn \
     scipy \
     scikit-learn \
-    pyspark
+    "pyspark==${SPARK_VERSION}"
 
 # Download and install Spark
 RUN wget "https://archive.apache.org/dist/spark/spark-${SPARK_VERSION}/spark-${SPARK_VERSION}-bin-hadoop${HADOOP_VERSION}.tgz" \
