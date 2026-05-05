@@ -6,7 +6,7 @@
 
 ## 📐 Kiến trúc hệ thống
 
-![Kiến trúc hệ thống](img\image.png)
+![Kiến trúc hệ thống](img/image.png)
 Pipeline xử lý dữ liệu theo mô hình **Medallion Architecture** gồm 3 tầng:
 
 | Tầng | Mô tả |
