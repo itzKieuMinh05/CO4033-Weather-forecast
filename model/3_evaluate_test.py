@@ -88,7 +88,6 @@ drop_cols = [
     'temperature', 'temp_min', 'temp_max', 'feels_like', 'temp_range',
     'wind_speed', 'wind_gust', 'rainfall', 'precipitation',
     'temp_level', 'humidity_level', 'pressure_level', 'wind_level'
-    # NOTE: DO NOT drop lag features - model was trained WITH them
 ]
 
 X_test = test_df.drop(columns=drop_cols, errors='ignore').select_dtypes(include=[np.number])
@@ -122,18 +121,33 @@ for f in os.listdir(BEST_DIR):
         break
 
 
+def align_features(model, X_df):
+    """Tự động gióng hàng và chọn đúng các cột feature mà mô hình mong đợi."""
+    if hasattr(model, 'feature_names_in_'):
+        expected_cols = list(model.feature_names_in_)
+        # Lấy đúng các cột theo thứ tự model cần
+        return X_df[expected_cols]
+    return X_df
+
+
 def calc_metrics(model, X, y_true):
-    # Convert to numpy to avoid sklearn feature name validation
-    X_array = X.to_numpy() if hasattr(X, 'to_numpy') else X.values if hasattr(X, 'values') else X
+    # Gióng hàng features trước khi dự đoán
+    X_aligned = align_features(model, X)
+    
+    # Chuyển sang numpy array để tránh cảnh báo của sklearn
+    X_array = X_aligned.to_numpy() if hasattr(X_aligned, 'to_numpy') else X_aligned.values if hasattr(X_aligned, 'values') else X_aligned
+    
     pred = model.predict(X_array)
     try:
         prob = model.predict_proba(X_array)
     except Exception:
         prob = None
+        
     acc = accuracy_score(y_true, pred)
     prec = precision_score(y_true, pred, average='macro', zero_division=0)
     rec = recall_score(y_true, pred, average='macro', zero_division=0)
     f1 = f1_score(y_true, pred, average='macro', zero_division=0)
+    
     if prob is not None:
         try:
             if prob.ndim == 2 and prob.shape[1] == 2:
@@ -154,9 +168,12 @@ print('\n[EXTREME - Best model]')
 print(best_extreme_name)
 print(metrics_extreme)
 
-# Confusion matrix
-pred_ext = best_extreme.predict(X_test)
+# Confusion matrix cho Extreme
+# Đảm bảo dùng X đã được gióng hàng khi gọi predict trực tiếp
+X_test_ext_aligned = align_features(best_extreme, X_test)
+pred_ext = best_extreme.predict(X_test_ext_aligned)
 cm_ext = confusion_matrix(y_test_extreme, pred_ext)
+
 fig, ax = plt.subplots(figsize=(7, 5))
 sns.heatmap(cm_ext, annot=True, fmt='d', cmap='OrRd', ax=ax,
             xticklabels=le.classes_, yticklabels=le.classes_)
@@ -166,8 +183,7 @@ ax.set_xlabel('Pred')
 plt.tight_layout()
 plt.savefig('confusion_extreme_best.png')
 plt.close()
-
-print('\n[EXTREME] Saved confusion_extreme_best.png')
+print('✓ Đã xuất ảnh confusion_extreme_best.png')
 
 # Evaluate rain if available
 if best_rain is not None and y_test_rain is not None:
@@ -176,8 +192,10 @@ if best_rain is not None and y_test_rain is not None:
     print(best_rain_name)
     print(metrics_rain)
 
-    pred_rain = best_rain.predict(X_test)
+    X_test_rain_aligned = align_features(best_rain, X_test)
+    pred_rain = best_rain.predict(X_test_rain_aligned)
     cm_rain = confusion_matrix(y_test_rain, pred_rain)
+    
     fig, ax = plt.subplots(figsize=(5, 4))
     sns.heatmap(cm_rain, annot=True, fmt='d', cmap='Blues', ax=ax,
                 xticklabels=['No Rain', 'Rain'], yticklabels=['No Rain', 'Rain'])
@@ -187,11 +205,6 @@ if best_rain is not None and y_test_rain is not None:
     plt.tight_layout()
     plt.savefig('confusion_rain_best.png')
     plt.close()
-    print('Saved confusion_rain_best.png')
+    print('✓ Đã xuất ảnh confusion_rain_best.png')
 
 print('\n✅ HOÀN THÀNH ĐÁNH GIÁ')
-plt.tight_layout()
-plt.savefig('test_confusion_matrix_rain.png')
-plt.close()
-
-print("\n=> Đã xuất ảnh 'test_confusion_matrix_extreme.png' và 'test_confusion_matrix_rain.png'!")

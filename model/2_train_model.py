@@ -5,7 +5,7 @@
  - uses class_weight where applicable
  - does a small GridSearchCV per model (lightweight)
  - selects best model by F1-macro, then accuracy, then recall
- - saves best models to training/best/ 
+ - saves best models to model/training/best/
 docker compose exec spark-master spark-submit --master local[*] /opt/spark/model/2_train_model.py
  """
 
@@ -38,6 +38,7 @@ print("--- BƯỚC 2: HUẤN LUYỆN MÔ HÌNH TRÊN TẬP TRAIN ---")
 BRONZE_TRAIN_PATH = os.getenv("TRAIN_SPLIT_PATH", "s3a://iceberg/train/train_split/")
 LOCAL_TRAIN_CSV = os.path.join(os.getcwd(), "train_test_data", "train_data.csv")
 MAX_TRAIN_ROWS = int(os.getenv("MAX_TRAIN_ROWS", "200000"))
+MODEL_OUTPUT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "training", "best")
 
 
 def build_spark(app_name):
@@ -110,8 +111,7 @@ drop_cols = [
     target, 'rain', 'time', 'weather_code', 'weather_main', 'weather_description', 'weather_icon',
     'temperature', 'temp_min', 'temp_max', 'feels_like', 'temp_range',
     'wind_speed', 'wind_gust', 'rainfall', 'precipitation',
-    'temp_level', 'humidity_level', 'pressure_level', 'wind_level',
-    'temp_lag_1', 'humidity_lag_1', 'pressure_lag_1'  # consistent with eval script
+    'temp_level', 'humidity_level', 'pressure_level', 'wind_level'
 ]
 
 X = df.drop(columns=drop_cols, errors='ignore').select_dtypes(include=[np.number]).copy()
@@ -121,8 +121,8 @@ if target in df.columns:
     y_raw = df[target].astype(str)
     y = le.fit_transform(y_raw)
     # save label encoder
-    os.makedirs(os.path.join(os.getcwd(), "training", "best"), exist_ok=True)
-    joblib.dump(le, os.path.join(os.getcwd(), "training", "best", "label_encoder.pkl"))
+    os.makedirs(MODEL_OUTPUT_DIR, exist_ok=True)
+    joblib.dump(le, os.path.join(MODEL_OUTPUT_DIR, "label_encoder.pkl"))
 else:
     raise KeyError("Cột 'extreme' không tồn tại trong dữ liệu train.")
 
@@ -205,11 +205,11 @@ for name, estimator in models.items():
         best_overall = {'name': name, 'score': score, 'acc': acc, 'recall': rec, 'model': best}
 
 # Save best extreme model
-os.makedirs(os.path.join(os.getcwd(), "training", "best"), exist_ok=True)
+os.makedirs(MODEL_OUTPUT_DIR, exist_ok=True)
 best_name = best_overall['name']
 best_model = best_overall['model']
 if best_model is not None:
-    best_path = os.path.join(os.getcwd(), "training", "best", f"best_extreme_{best_name}.pkl")
+    best_path = os.path.join(MODEL_OUTPUT_DIR, f"best_extreme_{best_name}.pkl")
     joblib.dump(best_model, best_path)
     print(f"\n✅ Lưu mô hình extreme tốt nhất: {best_name} → {best_path}")
 
@@ -245,7 +245,7 @@ else:
             best_rain = (rn, s, re)
 
     if best_rain[2] is not None:
-        rain_path = os.path.join(os.getcwd(), "training", "best", f"best_rain_{best_rain[0]}.pkl")
+        rain_path = os.path.join(MODEL_OUTPUT_DIR, f"best_rain_{best_rain[0]}.pkl")
         joblib.dump(best_rain[2], rain_path)
         print(f"✅ Lưu mô hình rain tốt nhất: {best_rain[0]} → {rain_path}")
 
@@ -253,4 +253,4 @@ print("\nHoàn tất huấn luyện. Kết quả tóm tắt:")
 for r in results:
     print(f" - {r[0]}: F1={r[1]:.4f}, Acc={r[2]:.4f}, Recall={r[3]:.4f}")
 
-print("\n✅ ĐÃ LƯU TẤT CẢ MÔ HÌNH TỐT NHẤT VÀ LABEL ENCODER VÀO training/best/")
+print(f"\n✅ ĐÃ LƯU TẤT CẢ MÔ HÌNH TỐT NHẤT VÀ LABEL ENCODER VÀO {MODEL_OUTPUT_DIR}")

@@ -251,8 +251,8 @@ with left:
             temp_lag_1 = st.number_input("Nhiệt độ kỳ trước", value=float(temperature), step=0.1)
         with a2:
             day = st.slider("Ngày", 1, 31, 15)
-            humidity_lag_1 = st.number_input("Độ ẩm kỳ trước", value=float(humidity), step=0.1)
             is_day = st.toggle("Ban ngày", True)
+            humidity_lag_1 = st.number_input("Độ ẩm kỳ trước", value=float(humidity), step=0.1)
         with a3:
             month = st.slider("Tháng", 1, 12, 6)
             visibility = st.number_input("Tầm nhìn", value=10.0, step=0.1, format="%.2f")

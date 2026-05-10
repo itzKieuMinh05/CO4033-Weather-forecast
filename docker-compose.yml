@@ -68,6 +68,7 @@ services:
       - ./src:/opt/spark/src
       - ./config/spark:/opt/spark/conf
       - ./data:/opt/spark/data
+      - ./model:/opt/spark/model
     networks:
       - data-platform
 

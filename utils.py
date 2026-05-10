@@ -168,6 +168,7 @@ def load_models():
     root = Path(__file__).resolve().parent
     search_dirs = [
         root / "training" / "best",
+        root / "model" / "training" / "best",
         root / "models",
         root / "model",
         root / "notebook",
