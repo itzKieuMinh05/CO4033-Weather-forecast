@@ -8,14 +8,14 @@ aws_region = os.getenv("AWS_REGION", "us-east-1")
 minio_endpoint = os.getenv("S3_ENDPOINT", "http://minio:9000")
 spark_master = os.getenv("SPARK_MASTER_URL", "spark://spark-master:7077")
 
-input_path = os.getenv("WEATHER_RAW_PATH", "data/weather_vn_cleaned.csv")
+input_path = os.getenv("WEATHER_INSERT_PATH", "/opt/spark/data/processed/processed_weather.csv")
 bronze_output_path = os.getenv(
     "BRONZE_WEATHER_PATH",
     "s3a://iceberg/bronze/weather_raw_parquet/"
 )
 
 spark = SparkSession.builder \
-    .appName("WeatherToBronzeParquet") \
+    .appName("InsertBronzeWeatherParquet") \
     .master(spark_master) \
     .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions") \
     .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog") \
@@ -28,10 +28,9 @@ spark = SparkSession.builder \
     .config("spark.sql.catalog.iceberg.s3.access-key-id", aws_access_key) \
     .config("spark.sql.catalog.iceberg.s3.secret-access-key", aws_secret_key) \
     .config("spark.sql.catalog.iceberg.s3.region", aws_region) \
+    .config("spark.sql.catalog.iceberg.s3.ssl-enabled", "false") \
     .config("spark.sql.defaultCatalog", "iceberg") \
     .getOrCreate()
-
-spark.sparkContext.setLogLevel("ERROR")
 
 raw_df = spark.read.option("header", True).csv(input_path)
 
@@ -39,11 +38,7 @@ bronze_df = raw_df \
     .withColumn("source_file", input_file_name()) \
     .withColumn("bronze_ingested_at", current_timestamp())
 
-print("Bronze preview:")
-bronze_df.show(10, truncate=False)
-
 bronze_df.write.mode("append").parquet(bronze_output_path)
-
-print(f"Bronze Parquet written to {bronze_output_path}")
+print(f"Inserted raw rows into bronze Parquet path: {bronze_output_path}")
 
 spark.stop()

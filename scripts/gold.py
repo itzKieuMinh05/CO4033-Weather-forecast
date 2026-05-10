@@ -10,6 +10,7 @@ aws_access_key = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
 aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin123")
 aws_region = os.getenv("AWS_REGION", "us-east-1")
 minio_endpoint = os.getenv("S3_ENDPOINT", "http://minio:9000")
+spark_master = os.getenv("SPARK_MASTER_URL", "spark://spark-master:7077")
 
 # ==============================
 # Spark Session
@@ -17,6 +18,7 @@ minio_endpoint = os.getenv("S3_ENDPOINT", "http://minio:9000")
 
 spark = SparkSession.builder \
     .appName("WeatherRiskGoldLayer") \
+    .master(spark_master) \
     .config("spark.sql.extensions","org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions") \
     .config("spark.sql.catalog.iceberg","org.apache.iceberg.spark.SparkCatalog") \
     .config("spark.sql.catalog.iceberg.type","rest") \

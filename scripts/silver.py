@@ -2,35 +2,44 @@ import os
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col,
-    when,
     current_timestamp,
-    round as spark_round,
-    hour,
-    dayofweek,
     dayofmonth,
+    dayofweek,
+    hour,
+    lit,
+    lower,
     month,
-    to_date,
+    radians,
+    round as spark_round,
     sin,
     cos,
-    radians,
-    expr,
-    lit,
-    lag,
-    max as spark_max,
-    min as spark_min
+    to_timestamp,
+    trim,
+    when,
+)
+
+# ==============================
+# Environment
+# ==============================
+
+aws_access_key = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
+aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin123")
+aws_region = os.getenv("AWS_REGION", "us-east-1")
+minio_endpoint = os.getenv("S3_ENDPOINT", "http://minio:9000")
+spark_master = os.getenv("SPARK_MASTER_URL", "spark://spark-master:7077")
+bronze_input_path = os.getenv(
+    "BRONZE_WEATHER_PATH",
+    "s3a://iceberg/bronze/weather_raw_parquet/"
 )
 from pyspark.sql.window import Window
 
 # ==============================
 # Spark Session
 # ==============================
-aws_access_key = os.getenv("AWS_ACCESS_KEY_ID", "minioadmin")
-aws_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin123")
-aws_region = os.getenv("AWS_REGION", "us-east-1")
-minio_endpoint = os.getenv("S3_ENDPOINT", "http://minio:9000")
 
 spark = SparkSession.builder \
-    .appName("BronzeToSilverWeather") \
+    .appName("BronzeParquetToSilverWeather") \
+    .master(spark_master) \
     .config("spark.sql.extensions", "org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions") \
     .config("spark.sql.catalog.iceberg", "org.apache.iceberg.spark.SparkCatalog") \
     .config("spark.sql.catalog.iceberg.type", "rest") \
@@ -43,24 +52,21 @@ spark = SparkSession.builder \
     .config("spark.sql.catalog.iceberg.s3.secret-access-key", aws_secret_key) \
     .config("spark.sql.catalog.iceberg.s3.region", aws_region) \
     .config("spark.sql.defaultCatalog", "iceberg") \
-    .getOrCreate() 
+    .getOrCreate()
 
 spark.sparkContext.setLogLevel("ERROR")
 
 # ==============================
-# Create namespace
+# Create namespace and table
 # ==============================
 
 spark.sql("CREATE NAMESPACE IF NOT EXISTS iceberg.silver")
-
-# ==============================
-# Create silver table
-# ==============================
 
 spark.sql("""
 CREATE TABLE IF NOT EXISTS iceberg.silver.weather (
     time TIMESTAMP,
     province STRING,
+    region STRING,
     city STRING,
     temperature DOUBLE,
     temp_min DOUBLE,
@@ -83,8 +89,7 @@ CREATE TABLE IF NOT EXISTS iceberg.silver.weather (
     day INT,
     month INT,
     weekday INT,
-    day_of_week INT,
-    region STRING,
+    temp_range DOUBLE,
     wind_dir_sin DOUBLE,
     wind_dir_cos DOUBLE,
     rain INT,
@@ -96,7 +101,6 @@ CREATE TABLE IF NOT EXISTS iceberg.silver.weather (
     temp_lag_1 DOUBLE,
     humidity_lag_1 DOUBLE,
     pressure_lag_1 DOUBLE,
-    temp_range DOUBLE,
     update_at TIMESTAMP
 )
 USING iceberg
@@ -106,138 +110,198 @@ PARTITIONED BY (days(time))
 print("Silver table ready")
 
 # ==============================
-# Read Bronze
+# Read Bronze Parquet
 # ==============================
 
-bronze_df = spark.read.table("iceberg.weather.weather_bronze")
+bronze_df = spark.read.parquet(bronze_input_path)
 
-print("Bronze preview:")
-bronze_df.show(5)
-
-# ==============================
-# Data Cleaning
-# ==============================
-
-df = bronze_df \
-    .withColumn("temperature",
-        when(col("temperature").isNull(), 0.0)
-        .otherwise(spark_round(col("temperature"), 2))) \
-    .withColumn("temp_min",
-        when(col("temp_min").isNull(), 0.0)
-        .otherwise(spark_round(col("temp_min"), 2))) \
-    .withColumn("temp_max",
-        when(col("temp_max").isNull(), 0.0)
-        .otherwise(spark_round(col("temp_max"), 2))) \
-    .withColumn("humidity",
-        when(col("humidity").isNull(), 0.0)
-        .otherwise(spark_round(col("humidity"), 2))) \
-    .withColumn("pressure",
-        when(col("pressure").isNull(), 0.0)
-        .otherwise(spark_round(col("pressure"), 2))) \
-    .withColumn("wind_speed",
-        when(col("wind_speed").isNull(), 0.0)
-        .otherwise(spark_round(col("wind_speed"), 2))) \
-    .withColumn("precipitation",
-        when(col("precipitation").isNull(), 0.0)
-        .otherwise(spark_round(col("precipitation"), 2)))
+print("Bronze Parquet preview:")
+bronze_df.show(5, truncate=False)
 
 # ==============================
-# Feature Engineering
+# Transform to tabular schema
 # ==============================
 
-north = [
-    "Bac Giang","Bac Kan","Bac Ninh","Tu Son","Cao Bang",
-    "Dien Bien Phu","Ha Giang","Ha Noi","Hai Duong","Hai Phong",
-    "Hoa Binh","Hung Yen","My Hao","Lai Chau","Lang Son",
-    "Lao Cai","Nam Dinh","Ninh Binh","Tam Diep","Viet Tri",
-    "Cam Pha","Ha Long","Mong Cai","Uong Bi","Son La",
-    "Song Cong","Thai Nguyen","Tuyen Quang","Phuc Yen",
-    "Vinh Yen","Yen Bai"
-]
+df = bronze_df
 
-central = [
-    "Quy Nhon","Phan Thiet","Da Nang","Buon Ma Thuot","Gia Nghia",
-    "Pleiku","Ha Tinh","Hong Linh","Cam Ranh","Nha Trang",
-    "Kon Tum","Phan Rang - Thap Cham","Tuy Hoa","Dong Hoi",
-    "Hoi An","Tam Ky","Quang Ngai","Dong Ha","Thai Hoa",
-    "Vinh","Sam Son","Thanh Hoa"
-]
+if "region" not in df.columns and "province" in df.columns:
+    df = df.withColumn("region", col("province"))
 
-south = [
-    "Chau Doc","Long Xuyen","Ba Ria","Vung Tau","Bac Lieu",
-    "Ben Tre","Di An","Thu Dau Mot","Thuan An","Dong Xoai",
-    "Ca Mau","Can Tho","Bien Hoa","Long Khanh","Nga Bay",
-    "Vi Thanh","Ha Tien","Rach Gia","Tan An","Soc Trang",
-    "Ho Chi Minh","Tay Ninh","My Tho","Tra Vinh","Vinh Long"
-]
+if "province" not in df.columns and "region" in df.columns:
+    df = df.withColumn("province", col("region"))
 
-w_city_time = Window.partitionBy("city").orderBy("event_time")
-w_city_day = Window.partitionBy("city", to_date(col("event_time")))
+df = df.withColumn("time", to_timestamp(col("time")))
 
-df = df \
-    .withColumn("hour", hour("event_time")) \
-    .withColumn("day", dayofmonth("event_time")) \
-    .withColumn("month", month("event_time")) \
-    .withColumn("day_of_week", dayofweek("event_time")) \
-    .withColumn("weekday", expr("pmod(dayofweek(event_time) + 5, 7)")) \
-    .withColumn(
-        "region",
-        when(col("city").isin(north), lit("north"))
-        .when(col("city").isin(central), lit("central"))
-        .when(col("city").isin(south), lit("south"))
-        .otherwise(lit("unknown"))
-    ) \
-    .withColumn("wind_dir_sin", spark_round(sin(radians(col("wind_direction"))), 4)) \
-    .withColumn("wind_dir_cos", spark_round(cos(radians(col("wind_direction"))), 4)) \
-    .withColumn("rain", when(col("precipitation") > 0, 1).otherwise(0)) \
-    .withColumn(
+for column_name in [
+    "temperature",
+    "temp_min",
+    "temp_max",
+    "humidity",
+    "feels_like",
+    "visibility",
+    "precipitation",
+    "cloudcover",
+    "wind_speed",
+    "wind_gust",
+    "wind_direction",
+    "pressure",
+]:
+    if column_name in df.columns:
+        df = df.withColumn(column_name, spark_round(col(column_name).cast("double"), 2))
+
+if "is_day" in df.columns:
+    df = df.withColumn(
+        "is_day",
+        when(lower(trim(col("is_day"))).isin("1", "true", "t", "yes"), lit(True))
+        .when(lower(trim(col("is_day"))).isin("0", "false", "f", "no"), lit(False))
+        .otherwise(col("is_day").cast("boolean"))
+    )
+else:
+    df = df.withColumn("is_day", lit(None).cast("boolean"))
+
+if "weather_code" in df.columns:
+    df = df.withColumn("weather_code", col("weather_code").cast("int"))
+else:
+    df = df.withColumn("weather_code", lit(None).cast("int"))
+
+for column_name in ["hour", "day", "month", "weekday", "rain"]:
+    if column_name in df.columns:
+        df = df.withColumn(column_name, col(column_name).cast("int"))
+
+for column_name in [
+    "temp_range",
+    "wind_dir_sin",
+    "wind_dir_cos",
+    "temp_lag_1",
+    "humidity_lag_1",
+    "pressure_lag_1",
+]:
+    if column_name in df.columns:
+        df = df.withColumn(column_name, spark_round(col(column_name).cast("double"), 4))
+
+if "hour" in df.columns:
+    df = df.withColumn("hour", when(col("hour").isNull(), hour("time")).otherwise(col("hour")))
+else:
+    df = df.withColumn("hour", hour("time"))
+
+if "day" in df.columns:
+    df = df.withColumn("day", when(col("day").isNull(), dayofmonth("time")).otherwise(col("day")))
+else:
+    df = df.withColumn("day", dayofmonth("time"))
+
+if "month" in df.columns:
+    df = df.withColumn("month", when(col("month").isNull(), month("time")).otherwise(col("month")))
+else:
+    df = df.withColumn("month", month("time"))
+
+if "weekday" in df.columns:
+    df = df.withColumn(
+        "weekday",
+        when(col("weekday").isNull(), (dayofweek("time") + lit(5)) % lit(7)).otherwise(col("weekday"))
+    )
+else:
+    df = df.withColumn("weekday", (dayofweek("time") + lit(5)) % lit(7))
+
+if "temp_max" in df.columns and "temp_min" in df.columns:
+    if "temp_range" in df.columns:
+        df = df.withColumn(
+            "temp_range",
+            when(col("temp_range").isNull(), col("temp_max") - col("temp_min")).otherwise(col("temp_range"))
+        )
+    else:
+        df = df.withColumn("temp_range", col("temp_max") - col("temp_min"))
+else:
+    df = df.withColumn("temp_range", lit(None).cast("double"))
+
+if "wind_direction" in df.columns:
+    if "wind_dir_sin" in df.columns:
+        df = df.withColumn(
+            "wind_dir_sin",
+            when(col("wind_dir_sin").isNull(), spark_round(sin(radians(col("wind_direction"))), 4))
+            .otherwise(col("wind_dir_sin"))
+        )
+    else:
+        df = df.withColumn("wind_dir_sin", spark_round(sin(radians(col("wind_direction"))), 4))
+
+    if "wind_dir_cos" in df.columns:
+        df = df.withColumn(
+            "wind_dir_cos",
+            when(col("wind_dir_cos").isNull(), spark_round(cos(radians(col("wind_direction"))), 4))
+            .otherwise(col("wind_dir_cos"))
+        )
+    else:
+        df = df.withColumn("wind_dir_cos", spark_round(cos(radians(col("wind_direction"))), 4))
+else:
+    df = df.withColumn("wind_dir_sin", lit(None).cast("double"))
+    df = df.withColumn("wind_dir_cos", lit(None).cast("double"))
+
+if "rain" not in df.columns:
+    if "precipitation" in df.columns:
+        df = df.withColumn("rain", when(col("precipitation") > 0, lit(1)).otherwise(lit(0)))
+    else:
+        df = df.withColumn("rain", lit(0))
+else:
+    df = df.withColumn(
+        "rain",
+        when(col("rain").isNull(), when(col("precipitation") > 0, lit(1)).otherwise(lit(0))).otherwise(col("rain"))
+    )
+
+if "extreme" not in df.columns:
+    df = df.withColumn(
         "extreme",
-        when(col("temp_max") > 35, "heatwave")
-        .when(col("precipitation") > 50, "heavy_rain")
-        .when(col("wind_speed") > 40, "storm")
-        .when(col("precipitation") > 0, "rain")
-        .otherwise("normal")
-    ) \
-    .withColumn(
-        "temp_level",
-        when(col("temp_max") <= 20, "temp_low")
-        .when((col("temp_max") > 20) & (col("temp_max") <= 30), "temp_medium")
-        .otherwise("temp_high")
-    ) \
-    .withColumn(
-        "humidity_level",
-        when(col("humidity") <= 60, "humidity_low")
-        .when((col("humidity") > 60) & (col("humidity") <= 80), "humidity_medium")
-        .otherwise("humidity_high")
-    ) \
-    .withColumn(
-        "pressure_level",
-        when(col("pressure") <= 1000, "pressure_low")
-        .when((col("pressure") > 1000) & (col("pressure") <= 1015), "pressure_normal")
-        .otherwise("pressure_high")
-    ) \
-    .withColumn(
-        "wind_level",
-        when(col("wind_speed") <= 10, "wind_low")
-        .when((col("wind_speed") > 10) & (col("wind_speed") <= 25), "wind_medium")
-        .otherwise("wind_high")
-    ) \
-    .withColumn("temp_lag_1", lag("temp_max", 1).over(w_city_time)) \
-    .withColumn("humidity_lag_1", lag("humidity", 1).over(w_city_time)) \
-    .withColumn("pressure_lag_1", lag("pressure", 1).over(w_city_time)) \
-    .withColumn(
-        "temp_range",
-        spark_max("temp_max").over(w_city_day) - spark_min("temp_min").over(w_city_day)
-    ) \
-    .withColumn("update_at", current_timestamp())
+        when(col("temp_max") > 35, lit("heatwave"))
+        .when(col("rain") > 0, lit("rain"))
+        .when(col("wind_speed") > 40, lit("storm"))
+        .otherwise(lit("normal"))
+    )
 
-# ==============================
-# Select columns
-# ==============================
+if "temp_level" not in df.columns:
+    df = df.withColumn(
+        "temp_level",
+        when(col("temp_max") < 20, lit("temp_low"))
+        .when(col("temp_max") < 30, lit("temp_medium"))
+        .otherwise(lit("temp_high"))
+    )
+
+if "humidity_level" not in df.columns:
+    df = df.withColumn(
+        "humidity_level",
+        when(col("humidity") < 60, lit("humidity_low"))
+        .when(col("humidity") < 80, lit("humidity_medium"))
+        .otherwise(lit("humidity_high"))
+    )
+
+if "pressure_level" not in df.columns:
+    df = df.withColumn(
+        "pressure_level",
+        when(col("pressure") < 1000, lit("pressure_low"))
+        .when(col("pressure") < 1015, lit("pressure_normal"))
+        .otherwise(lit("pressure_high"))
+    )
+
+if "wind_level" not in df.columns:
+    df = df.withColumn(
+        "wind_level",
+        when(col("wind_speed") < 10, lit("wind_low"))
+        .when(col("wind_speed") < 25, lit("wind_medium"))
+        .otherwise(lit("wind_high"))
+    )
+
+if "temp_lag_1" not in df.columns:
+    df = df.withColumn("temp_lag_1", lit(None).cast("double"))
+
+if "humidity_lag_1" not in df.columns:
+    df = df.withColumn("humidity_lag_1", lit(None).cast("double"))
+
+if "pressure_lag_1" not in df.columns:
+    df = df.withColumn("pressure_lag_1", lit(None).cast("double"))
+
+df = df.withColumn("update_at", current_timestamp())
 
 selected_columns = [
-    "event_time",
+    "time",
     "province",
+    "region",
     "city",
     "temperature",
     "temp_min",
@@ -260,8 +324,7 @@ selected_columns = [
     "day",
     "month",
     "weekday",
-    "day_of_week",
-    "region",
+    "temp_range",
     "wind_dir_sin",
     "wind_dir_cos",
     "rain",
@@ -273,21 +336,15 @@ selected_columns = [
     "temp_lag_1",
     "humidity_lag_1",
     "pressure_lag_1",
-    "temp_range",
-    "update_at"
+    "update_at",
 ]
 
-df = df.selectExpr(
-    "event_time as time",
-    *selected_columns[1:]
-)
+df = df.select(*selected_columns)
 
-# ==============================
-# Write to Silver
-# ==============================
+print("Silver preview:")
+df.show(10, truncate=False)
 
 print("Writing to iceberg.silver.weather...")
-
 df.writeTo("iceberg.silver.weather").append()
 
 print("Silver transformation completed")
